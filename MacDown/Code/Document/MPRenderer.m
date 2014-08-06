@@ -12,6 +12,7 @@
 #import "hoedown_html_patch.h"
 #import "NSObject+HTMLTabularize.h"
 #import "NSString+Lookup.h"
+#import "NSScanner+Extension.h"
 #import "MPUtilities.h"
 #import "MPAsset.h"
 
@@ -145,7 +146,7 @@ static NSString *MPGetEscapedMathJaxContent(NSString *input)
     static NSRegularExpression *regex = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        regex = [[NSRegularExpression alloc] initWithPattern:@"[*|_]"
+        regex = [[NSRegularExpression alloc] initWithPattern:@"[*|_|\\[|\\]]"
                                                      options:0 error:nil];
     });
     NSRange range = NSMakeRange(0, input.length);
@@ -156,14 +157,49 @@ static NSString *MPGetEscapedMathJaxContent(NSString *input)
 }
 
 static NSString *MPScanMathJaxContent(
-    NSScanner *scanner, NSString *startDelimiter, NSString *endDelimiter)
+    NSScanner *scanner, NSString *startMark, NSString *endMark)
 {
-    NSMutableString *output = [NSMutableString stringWithString:startDelimiter];
-    NSString *content = nil;
-    if ([scanner scanUpToString:endDelimiter intoString:&content])
-        [output appendString:MPGetEscapedMathJaxContent(content)];
-    if ([scanner scanString:endDelimiter intoString:&content])
-        [output appendString:content];
+    NSCharacterSet *delimSet =
+        [NSCharacterSet characterSetWithCharactersInString:@"$\\\n"];
+
+    id content = [NSMutableString string];
+    NSString *curr = nil;
+    while (!scanner.isAtEnd)
+    {
+        // Scan until next delimiter.
+        if ([scanner scanUpToCharactersFromSet:delimSet intoString:&curr])
+            [content appendString:curr];
+
+        // Eat newlines.
+        if ([scanner scanString:@"\n" intoString:&curr])
+        {
+            [content appendString:@" "];
+            continue;
+        }
+
+        // End delimiter found. Process content and finish.
+        if ([scanner scanString:endMark intoString:&curr])
+        {
+            content = MPGetEscapedMathJaxContent(content);
+            break;
+        }
+
+        // Escape next character.
+        if ([scanner scanString:@"\\" intoString:&curr])
+        {
+            [content appendString:@"\\\\"];
+            if ([scanner scanStringOfSize:1 intoString:&curr])
+                [content appendString:curr];
+            continue;
+        }
+
+        // Not really anything. Process normally.
+        if ([scanner scanStringOfSize:1 intoString:&curr])
+            [content appendString:curr];
+    }
+
+    NSString *output =
+        [NSString stringWithFormat:@"%@%@%@", startMark, content, curr];
     return output;
 }
 
@@ -193,7 +229,7 @@ NSString *MPGetProcessedContentForMathJax(NSString *input, BOOL hasInline)
         // Continue normal processing if this delimiter is escaped.
         if (isEscaped)
         {
-            if ([scanner scanCharactersFromSet:delimSet intoString:&curr])
+            if ([scanner scanStringOfSize:1 intoString:&curr])
                 [output appendString:curr];
             isEscaped = NO;
         }
@@ -209,7 +245,7 @@ NSString *MPGetProcessedContentForMathJax(NSString *input, BOOL hasInline)
             [output appendString:MPScanMathJaxContent(scanner, curr, @"$")];
 
         // Not really a MathJax block. Process the delimiter only.
-        else if ([scanner scanCharactersFromSet:delimSet intoString:&curr])
+        else if ([scanner scanStringOfSize:1 intoString:&curr])
         {
             [output appendString:curr];
             if ([curr isEqualToString:@"\\"])
