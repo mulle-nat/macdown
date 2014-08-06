@@ -140,6 +140,85 @@ static NSString *MPGetHTML(
     return html;
 }
 
+static NSString *MPGetEscapedMathJaxContent(NSString *input)
+{
+    static NSRegularExpression *regex = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        regex = [[NSRegularExpression alloc] initWithPattern:@"[*|_]"
+                                                     options:0 error:nil];
+    });
+    NSRange range = NSMakeRange(0, input.length);
+    NSString *proc = [regex stringByReplacingMatchesInString:input options:0
+                                                       range:range
+                                                withTemplate:@"\\\\$0"];
+    return proc;
+}
+
+static NSString *MPScanMathJaxContent(
+    NSScanner *scanner, NSString *startDelimiter, NSString *endDelimiter)
+{
+    NSMutableString *output = [NSMutableString stringWithString:startDelimiter];
+    NSString *content = nil;
+    if ([scanner scanUpToString:endDelimiter intoString:&content])
+        [output appendString:MPGetEscapedMathJaxContent(content)];
+    if ([scanner scanString:endDelimiter intoString:&content])
+        [output appendString:content];
+    return output;
+}
+
+NSString *MPGetProcessedContentForMathJax(NSString *input, BOOL hasInline)
+{
+    static NSCharacterSet *delimSet = nil;
+    static dispatch_once_t onceToken;
+    NSMutableString *output = [NSMutableString string];
+    NSString *curr = nil;
+
+    dispatch_once(&onceToken, ^{
+        delimSet = [NSCharacterSet characterSetWithCharactersInString:@"\\$"];
+    });
+
+    NSScanner *scanner = [NSScanner scannerWithString:input];
+    scanner.charactersToBeSkipped = nil;
+    BOOL isEscaped = NO;
+    while (!scanner.isAtEnd)
+    {
+        // Process things until we get a delimiter.
+        if ([scanner scanUpToCharactersFromSet:delimSet intoString:&curr])
+        {
+            [output appendString:curr];
+            isEscaped = NO;
+        }
+
+        // Continue normal processing if this delimiter is escaped.
+        if (isEscaped)
+        {
+            if ([scanner scanCharactersFromSet:delimSet intoString:&curr])
+                [output appendString:curr];
+            isEscaped = NO;
+        }
+
+        // Try to detect a MathJax block. Do special processing if we get one.
+        else if ([scanner scanString:@"\\\\(" intoString:&curr])
+            [output appendString:MPScanMathJaxContent(scanner, curr, @"\\\\)")];
+        else if ([scanner scanString:@"\\\\[" intoString:&curr])
+            [output appendString:MPScanMathJaxContent(scanner, curr, @"\\\\]")];
+        else if ([scanner scanString:@"$$" intoString:&curr])
+            [output appendString:MPScanMathJaxContent(scanner, curr, @"$$")];
+        else if (hasInline && [scanner scanString:@"$" intoString:&curr])
+            [output appendString:MPScanMathJaxContent(scanner, curr, @"$")];
+
+        // Not really a MathJax block. Process the delimiter only.
+        else if ([scanner scanCharactersFromSet:delimSet intoString:&curr])
+        {
+            [output appendString:curr];
+            if ([curr isEqualToString:@"\\"])
+                isEscaped = YES;
+        }
+    }
+    return [output copy];
+}
+
 
 @interface MPRenderer ()
 
@@ -160,6 +239,7 @@ static NSString *MPGetHTML(
 @property (copy) NSString *styleName;
 @property BOOL frontMatter;
 @property BOOL mathjax;
+@property BOOL dollar;
 @property BOOL syntaxHighlighting;
 @property BOOL manualRender;
 @property (copy) NSString *highlightingThemeName;
@@ -411,6 +491,8 @@ static hoedown_buffer *language_addition(const hoedown_buffer *language,
     id<MPRendererDelegate> delegate = self.delegate;
     if ([delegate rendererExtensions:self] != self.extensions
             || [delegate rendererHasSmartyPants:self] != self.smartypants
+            || [delegate rendererHasMathJax:self] != self.mathjax
+            || [delegate rendererMathJaxInlineDollarEnabled:self] != self.dollar
             || [delegate rendererRendersTOC:self] != self.TOC
             || [delegate rendererDetectsFrontMatter:self] != self.frontMatter)
         [self parse];
@@ -431,6 +513,8 @@ static hoedown_buffer *language_addition(const hoedown_buffer *language,
     int extensions = [delegate rendererExtensions:self];
     BOOL smartypants = [delegate rendererHasSmartyPants:self];
     BOOL hasFrontMatter = [delegate rendererDetectsFrontMatter:self];
+    BOOL hasMathJax = [delegate rendererHasMathJax:self];
+    BOOL hasMathJaxInline = [delegate rendererMathJaxInlineDollarEnabled:self];
     BOOL hasTOC = [delegate rendererRendersTOC:self];
 
     id frontMatter = nil;
@@ -441,6 +525,8 @@ static hoedown_buffer *language_addition(const hoedown_buffer *language,
         frontMatter = [markdown frontMatter:&offset];
         markdown = [markdown substringFromIndex:offset];
     }
+    if (hasMathJax)
+        markdown = MPGetProcessedContentForMathJax(markdown, hasMathJaxInline);
     hoedown_renderer *tocRenderer = NULL;
     if (hasTOC)
         tocRenderer = self.tocRenderer;
@@ -452,6 +538,8 @@ static hoedown_buffer *language_addition(const hoedown_buffer *language,
     self.smartypants = smartypants;
     self.TOC = hasTOC;
     self.frontMatter = hasFrontMatter;
+    self.mathjax = hasMathJax;
+    self.dollar = hasMathJaxInline;
 
     if (nextAction)
         nextAction();
@@ -462,8 +550,6 @@ static hoedown_buffer *language_addition(const hoedown_buffer *language,
     BOOL changed = NO;
     id<MPRendererDelegate> d = self.delegate;
     if ([d rendererHasSyntaxHighlighting:self] != self.syntaxHighlighting)
-        changed = YES;
-    else if ([d rendererHasMathJax:self] != self.mathjax)
         changed = YES;
     else if (![[d rendererHighlightingThemeName:self]
                    isEqualToString:self.highlightingThemeName])
@@ -486,7 +572,6 @@ static hoedown_buffer *language_addition(const hoedown_buffer *language,
     [delegate renderer:self didProduceHTMLOutput:html];
 
     self.styleName = [delegate rendererStyleName:self];
-    self.mathjax = [delegate rendererHasMathJax:self];
     self.syntaxHighlighting = [delegate rendererHasSyntaxHighlighting:self];
     self.highlightingThemeName = [delegate rendererHighlightingThemeName:self];
 }
