@@ -163,7 +163,7 @@ static NSString *MPScanMathJaxContent(
         [NSCharacterSet characterSetWithCharactersInString:@"$\\\n"];
 
     id content = [NSMutableString string];
-    NSString *curr = nil;
+    NSString *curr = @"";
     while (!scanner.isAtEnd)
     {
         // Scan until next delimiter.
