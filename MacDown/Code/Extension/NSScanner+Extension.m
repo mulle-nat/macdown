@@ -14,7 +14,7 @@
               intoString:(NSString *__autoreleasing *)value
 {
     NSUInteger location = self.scanLocation;
-    if (self.string.length <= location + size)
+    if (self.string.length < location + size)
     {
         *value = nil;
         return NO;
