@@ -634,7 +634,16 @@ static void (^MPGetPreviewLoadingCompletionHandler(id obj))()
     if (!content)
         content = @"";
 
+    NSRange selectedRange = self.editor.selectedRange;
     self.editor.string = content;
+
+    NSUInteger contentLength = content.length;
+    if (selectedRange.location >= contentLength)
+        selectedRange.location = contentLength - 1;
+    if (selectedRange.location + selectedRange.length >= contentLength)
+        selectedRange.length = contentLength - selectedRange.location - 1;
+    self.editor.selectedRange = selectedRange;
+
     [self.renderer parseAndRenderNow];
     [self.highlighter parseAndHighlightNow];
 }
