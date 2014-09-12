@@ -622,6 +622,23 @@ static void (^MPGetPreviewLoadingCompletionHandler(id obj))()
     return result;
 }
 
+- (void)presentedItemDidChange
+{
+    [super presentedItemDidChange];
+
+    NSData *data = [NSData dataWithContentsOfURL:self.presentedItemURL];
+    if (!data)
+        return;
+    NSString *content = [[NSString alloc] initWithData:data
+                                              encoding:NSUTF8StringEncoding];
+    if (!content)
+        return;
+
+    self.editor.string = content;
+    [self.renderer parseAndRenderNow];
+    [self.highlighter parseAndHighlightNow];
+}
+
 
 #pragma mark - NSTextViewDelegate
 
