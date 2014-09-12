@@ -626,13 +626,13 @@ static void (^MPGetPreviewLoadingCompletionHandler(id obj))()
 {
     [super presentedItemDidChange];
 
-    NSData *data = [NSData dataWithContentsOfURL:self.presentedItemURL];
+    NSData *data = [NSData dataWithContentsOfURL:self.fileURL];
     if (!data)
-        return;
+        data = [NSData data];
     NSString *content = [[NSString alloc] initWithData:data
                                               encoding:NSUTF8StringEncoding];
     if (!content)
-        return;
+        content = @"";
 
     self.editor.string = content;
     [self.renderer parseAndRenderNow];
