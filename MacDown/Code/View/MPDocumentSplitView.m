@@ -23,7 +23,7 @@
 
 @implementation MPDocumentSplitView
 
-@synthesize dividerColor = _dividerColor;
+@dynamic dividerColor;
 
 - (NSColor *)dividerColor
 {

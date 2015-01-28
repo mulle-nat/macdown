@@ -9,8 +9,12 @@
 #import <Cocoa/Cocoa.h>
 
 @interface MPDocumentSplitView : NSSplitView
+{
+   NSColor   *_dividerColor;
+}
 
 @property (assign, nonatomic) CGFloat dividerLocation;
+@property (copy, nonatomic) NSColor *dividerColor;
 
 - (void)setDividerColor:(NSColor *)color;
 
